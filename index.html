@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>The Brobots AI Booking Assistant</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        .chat-bubble-user {
+            background-color: #3b82f6; /* Blue for user */
+            color: white;
+            border-radius: 1rem 0.5rem 1rem 1rem;
+        }
+        .chat-bubble-ai {
+            background-color: #fca5a5; /* Light Red for AI (Brobots Brand Color) */
+            color: #1f2937; /* Dark text */
+            border-radius: 0.5rem 1rem 1rem 1rem;
+        }
+        #chat-container {
+            max-height: 400px; /* Controlled height for the scroll area */
+            overflow-y: auto;
+        }
+        /* Custom scrollbar for aesthetics */
+        #chat-container::-webkit-scrollbar { width: 6px; }
+        #chat-container::-webkit-scrollbar-thumb { background-color: #ef4444; border-radius: 3px; }
+        #chat-container::-webkit-scrollbar-track { background: #f3f4f6; }
+
+        .widget-closed-button {
+            transition: transform 0.3s ease;
+        }
+        .widget-closed-button:hover {
+            transform: scale(1.05);
+        }
+    </style>
+</head>
+<body class="p-0 m-0">
+
+    <!-- Chat Widget Container -->
+    <div id="brobots-chatbot-wrapper" class="fixed bottom-4 right-4 z-50">
+        
+        <!-- Closed Button / Icon -->
+        <button id="chat-toggle-btn" class="widget-closed-button bg-red-600 hover:bg-red-700 text-white p-4 rounded-full shadow-lg flex items-center justify-center">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M20 2H4C2.9 2 2 2.9 2 4v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 12H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z"/>
+            </svg>
+        </button>
+
+        <!-- Chat Window (Hidden by default) -->
+        <div id="chat-window" class="hidden bg-white shadow-xl rounded-lg w-80 md:w-96 overflow-hidden">
+            <div class="p-3 bg-red-600 text-white font-bold text-lg flex justify-between items-center rounded-t-lg">
+                <span>The Brobots AI Booking</span>
+                <button onclick="document.getElementById('chat-window').classList.add('hidden'); document.getElementById('chat-toggle-btn').classList.remove('hidden');" class="text-white hover:text-gray-200">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+            
+            <!-- Chat Messages Container -->
+            <div id="chat-container" class="p-4 space-y-4">
+                <!-- Initial welcome message added via JS -->
+                <div class="flex justify-start">
+                    <div class="chat-bubble-ai p-3 max-w-xs shadow">
+                        Hi! I'm The Brobots AI Booking Specialist. I can instantly confirm our availability, general pricing, and corporate vetting details. **What date are you planning your event for?**
+                    </div>
+                </div>
+            </div>
+
+            <!-- Input Area -->
+            <div class="p-3 border-t border-gray-200 flex">
+                <input type="text" id="user-input" placeholder="Type your message..." class="flex-grow p-2 border border-gray-300 rounded-l-lg focus:outline-none focus:ring-2 focus:ring-red-500">
+                <button id="send-btn" class="bg-red-600 text-white p-2 rounded-r-lg hover:bg-red-700 disabled:opacity-50 transition duration-150">
+                    Send
+                </button>
+            </div>
+            <div id="loading-indicator" class="hidden text-sm text-center text-red-600 p-1">
+                <svg class="animate-spin inline-block w-4 h-4 mr-2 text-red-600" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                Typing...
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_KEY = ""; // Automatically provided in the Canvas environment
+        const CHAT_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${API_KEY}`;
+        
+        // DOM Elements
+        const chatContainer = document.getElementById('chat-container');
+        const userInput = document.getElementById('user-input');
+        const sendBtn = document.getElementById('send-btn');
+        const loadingIndicator = document.getElementById('loading-indicator');
+        const chatWindow = document.getElementById('chat-window');
+        const chatToggleBtn = document.getElementById('chat-toggle-btn');
+        
+        let chatHistory = [];
+        let isAwaitingResponse = false;
+        const MAX_RETRIES = 5;
+
+        // --- System Instructions & Configuration ---
+        const SYSTEM_PROMPT = `You are The Brobots AI Booking Specialist for a high-energy rock cover band based in Los Angeles, specializing in corporate events and private parties. Your primary goal is to qualify the lead and get their contact information.
+        
+        RULES:
+        1. Always maintain the persona: Enthusiastic, professional, and rock-focused.
+        2. Always mention the band's USP: "100% live rock, no backing tracks."
+        3. Lead Qualification Funnel: Ask for the **event date** first, then the **event type/location**, and finally the **user's email address**. State clearly that an accurate quote will be emailed shortly after the conversation.
+        4. Pricing: If asked for a specific price, state: "The Brobots offer a premium, fully customized experience, generally starting in the **$8,000 - $15,000+** range. We need your event date and email to confirm an exact quote."
+        5. Vetting: Confirm all corporate/insurance questions immediately with a confident 'Yes.'
+        6. Use the provided Google Search Tool to look up any general information requested.`;
+
+        // --- Helper Functions ---
+
+        const createChatBubble = (text, sender) => {
+            const bubbleWrapper = document.createElement('div');
+            bubbleWrapper.className = `flex ${sender === 'user' ? 'justify-end' : 'justify-start'}`;
+            
+            const bubble = document.createElement('div');
+            bubble.className = `p-3 max-w-xs shadow ${sender === 'user' ? 'chat-bubble-user' : 'chat-bubble-ai'}`;
+            bubble.innerHTML = text.replace(/\n/g, '<br>'); // Use innerHTML to handle line breaks
+            
+            bubbleWrapper.appendChild(bubble);
+            chatContainer.appendChild(bubbleWrapper);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        };
+        
+        const callGeminiApi = async (messages, retryCount = 0) => {
+            if (isAwaitingResponse) return;
+            isAwaitingResponse = true;
+            loadingIndicator.classList.remove('hidden');
+            sendBtn.disabled = true;
+
+            const payload = {
+                contents: messages,
+                tools: [{ "google_search": {} }],
+                systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+            };
+
+            try {
+                const response = await fetch(CHAT_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    throw new Error(`API error: ${response.statusText}`);
+                }
+
+                const result = await response.json();
+                const candidate = result.candidates?.[0];
+
+                if (candidate && candidate.content?.parts?.[0]?.text) {
+                    const aiText = candidate.content.parts[0].text;
+                    createChatBubble(aiText, 'ai');
+                    chatHistory.push({ role: 'model', parts: [{ text: aiText }] });
+                } else {
+                    console.error("Unexpected API response structure:", result);
+                    createChatBubble("Sorry, I'm currently on stage! Please try again or use the contact form.", 'ai');
+                }
+            } catch (error) {
+                console.error("Fetch error:", error);
+                if (retryCount < MAX_RETRIES) {
+                    const delay = Math.pow(2, retryCount) * 1000;
+                    console.log(`Retrying in ${delay / 1000}s... (Attempt ${retryCount + 1})`);
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                    return callGeminiApi(messages, retryCount + 1);
+                } else {
+                    createChatBubble("Our guitars are out of tune! A temporary network error occurred. Please use our main contact form for booking.", 'ai');
+                }
+            } finally {
+                isAwaitingResponse = false;
+                loadingIndicator.classList.add('hidden');
+                sendBtn.disabled = false;
+                userInput.value = '';
+                userInput.focus();
+            }
+        };
+
+        // --- Event Handlers ---
+
+        const sendMessage = () => {
+            const text = userInput.value.trim();
+            if (text === '') return;
+
+            createChatBubble(text, 'user');
+            chatHistory.push({ role: 'user', parts: [{ text: text }] });
+            
+            // Pass the entire history to maintain context
+            callGeminiApi(chatHistory);
+        };
+        
+        // Toggle chat window open/close
+        chatToggleBtn.addEventListener('click', () => {
+            chatWindow.classList.toggle('hidden');
+            chatToggleBtn.classList.toggle('hidden');
+            // Scroll to bottom on open
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+            userInput.focus();
+        });
+
+        sendBtn.addEventListener('click', sendMessage);
+        userInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+
+        // Initialize with the first AI message in the history
+        chatHistory.push({ role: 'model', parts: [{ text: "Hi! I'm The Brobots AI Booking Specialist. I can instantly confirm our availability, general pricing, and corporate vetting details. **What date are you planning your event for?**" }] });
+
+    </script>
+
+</body>
+</html>
