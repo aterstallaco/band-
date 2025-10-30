@@ -86,7 +86,11 @@
     </div>
 
     <script>
-        const API_KEY = ""; // Automatically provided in the Canvas environment
+        // --- CRITICAL FIX: INSERT YOUR API KEY HERE ---
+        // You MUST replace the empty string with your Gemini API key 
+        // when testing outside of this environment (e.g., on GitHub or WordPress).
+        const API_KEY = ""; 
+        
         const CHAT_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${API_KEY}`;
         
         // DOM Elements
@@ -132,6 +136,16 @@
             isAwaitingResponse = true;
             loadingIndicator.classList.remove('hidden');
             sendBtn.disabled = true;
+            
+            // Check if API key is present for the fetch to work
+            if (!API_KEY) {
+                console.error("API Key is missing. Please insert your key into the 'const API_KEY' variable.");
+                createChatBubble("ERROR: The AI is offline because the API Key is missing. Please contact The Brobots via the main form.", 'ai');
+                isAwaitingResponse = false;
+                loadingIndicator.classList.add('hidden');
+                sendBtn.disabled = false;
+                return;
+            }
 
             const payload = {
                 contents: messages,
